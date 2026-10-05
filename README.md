@@ -101,7 +101,7 @@ Then double-click `hotkeys.ahk` to reload it. In AutoHotkey, `#` is Win, `+` is 
 The exe is a self-extracting package made with IExpress, which is built into Windows, so there's nothing extra to install:
 
 ```powershell
-git clone https://github.com/Wyatt852456/BetterHotkeys
+git clone https://github.com/ItsOverk1ll/BetterHotkeys
 cd BetterHotkeys
 .\build.ps1        # creates BetterHotkeys.exe
 ```

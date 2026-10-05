@@ -386,9 +386,9 @@ try {
     New-Item $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$appDir\uninstall.ps1`""
     $values = @{
-        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.6'; Publisher = 'Wyatt852456'
+        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.6'; Publisher = 'ItsOverk1ll'
         UninstallString = $uninstall; DisplayIcon = "$(Find-Ahk),0"
-        InstallLocation = $dest; URLInfoAbout = 'https://github.com/Wyatt852456/BetterHotkeys'
+        InstallLocation = $dest; URLInfoAbout = 'https://github.com/ItsOverk1ll/BetterHotkeys'
     }
     foreach ($name in $values.Keys) { Set-ItemProperty $key $name $values[$name] }
     Set-ItemProperty $key 'NoModify' 1 -Type DWord
