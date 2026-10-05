@@ -1,0 +1,5 @@
+# The exe is attached to GitHub Releases instead of committed
+BetterHotkeys.exe
+
+# Per-machine state written by the theme picker
+src/theme.txt
