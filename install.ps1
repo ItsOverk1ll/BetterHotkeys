@@ -125,13 +125,16 @@ Info "ok ($(Invoke-Program { & $winget --version }))"
 # --no-upgrade stops winget from upgrading a package that is already installed (older winget lacks it)
 $noUpgrade = if ((Invoke-Program { & $winget install --help }) -match '--no-upgrade') { '--no-upgrade' } else { $null }
 
-# Skips the package if $isInstalled finds it, or if winget already knows about it (any install source).
-# winget gets 10 minutes; if it's stuck, it's stopped and setup moves on.
-function Install-Package($id, $name, [scriptblock]$isInstalled) {
+# Skips the package if $isInstalled finds it, or if winget already knows about it (any install source;
+# -SkipListCheck trusts only $isInstalled). winget gets 10 minutes; if it's stuck, it's stopped and
+# setup moves on.
+function Install-Package($id, $name, [scriptblock]$isInstalled, [switch]$SkipListCheck) {
     Step "Installing $name"
     if (& $isInstalled) { Info 'already installed, skipping'; return }
-    Invoke-Program { & $winget list --id $id -e --accept-source-agreements --disable-interactivity } | Out-Null
-    if ($LASTEXITCODE -eq 0) { Info 'already installed, skipping'; return }
+    if (-not $SkipListCheck) {
+        Invoke-Program { & $winget list --id $id -e --accept-source-agreements --disable-interactivity } | Out-Null
+        if ($LASTEXITCODE -eq 0) { Info 'already installed, skipping'; return }
+    }
 
     $log = Join-Path $env:TEMP "betterhotkeys-winget-$id.log"
     $wingetArgs = @('install', '--id', $id, '-e', '--source', 'winget', '--silent', '--accept-source-agreements',
@@ -173,12 +176,51 @@ function Test-Any([string[]]$commands, [string[]]$paths) {
     $false
 }
 
+# Path to a PowerShell 7 that actually runs, or $null. A pwsh.exe can exist and still fail: a
+# Microsoft Store copy without a license (common on VMs) fails with "No applicable app licenses found".
+function Find-Pwsh {
+    $candidates = @("$env:ProgramFiles\PowerShell\7\pwsh.exe") + @(Get-Command pwsh -All -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.Source })
+    foreach ($path in $candidates) {
+        if (-not $path -or -not (Test-Path $path)) { continue }
+        try {
+            $major = Invoke-Program { & $path -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.Major' }
+            if (($major | Select-Object -Last 1) -match '^\d+$' -and [int]($major | Select-Object -Last 1) -ge 7) { return $path }
+        } catch {}
+    }
+    $null
+}
+
+# Installs PowerShell 7 from the official MSI on GitHub (asks for admin rights)
+function Install-PwshMsi {
+    $release = Invoke-RestMethod 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest' -Headers @{ 'User-Agent' = 'BetterHotkeys' }
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    $asset = $release.assets | Where-Object { $_.name -match "-win-$arch\.msi$" } | Select-Object -First 1
+    if (-not $asset) { throw "no $arch MSI in PowerShell $($release.tag_name)" }
+    $msi = Join-Path $env:TEMP $asset.name
+    Get-File $asset.browser_download_url $msi 'PowerShell 7'
+    Info 'Installing PowerShell 7 (Windows may ask for permission)...'
+    $proc = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/quiet', '/norestart', 'ADD_PATH=1' -Verb RunAs -Wait -PassThru
+    Remove-Item $msi -ErrorAction SilentlyContinue
+    if ($proc.ExitCode -notin 0, 3010) { throw "the installer failed (exit $($proc.ExitCode))" }
+}
+
 Install-Package 'AutoHotkey.AutoHotkey' 'AutoHotkey v2' { [bool](Find-Ahk) }
 Install-Package 'junegunn.fzf' 'fzf' {
     Test-Any 'fzf' "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\junegunn.fzf*\fzf.exe", "$env:USERPROFILE\scoop\shims\fzf.exe"
 }
-Install-Package 'Microsoft.PowerShell' 'PowerShell 7' {
-    Test-Any 'pwsh' "$env:ProgramFiles\PowerShell\7\pwsh.exe", "$env:LOCALAPPDATA\Microsoft\WindowsApps\pwsh.exe"
+# Checked by running it, and winget's list is skipped: winget may count an unlicensed Store copy
+Install-Package 'Microsoft.PowerShell' 'PowerShell 7' { [bool](Find-Pwsh) } -SkipListCheck
+if (-not (Find-Pwsh)) {
+    Info "PowerShell 7 still doesn't run, downloading it from GitHub..."
+    try {
+        Install-PwshMsi
+        if (Find-Pwsh) { $failed = @($failed | Where-Object { $_ -ne 'PowerShell 7' }); Info 'ok' }
+        else { throw 'it still does not run after installing' }
+    } catch {
+        Warn "Could not install PowerShell 7: $($_.Exception.Message)"
+        if ($failed -notcontains 'PowerShell 7') { $failed += 'PowerShell 7' }
+    }
 }
 Install-Package 'Microsoft.WindowsTerminal' 'Windows Terminal' {
     [bool](Get-AppxPackage Microsoft.WindowsTerminal*) -or (Test-Any 'wt')
@@ -217,17 +259,19 @@ Info $dest
 # themes.ps1 (the Win+Shift+T picker) does the work; it reapplies the current theme if one was
 # picked before, else Hackerman. -Init also sets the font, cursor, opacity and padding.
 Step 'Applying theme to Windows Terminal'
-$pwsh = "$env:ProgramFiles\PowerShell\7\pwsh.exe"
-if (-not (Test-Path $pwsh)) { $pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue).Source }
+$pwsh = Find-Pwsh
 $wtFile = "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json"
 if (-not $pwsh) {
     Warn 'PowerShell 7 not found, theme not applied'
     $failed += 'Windows Terminal theme'
 } else {
     if (Test-Path $wtFile) { Copy-Item $wtFile "$wtFile.before-betterhotkeys" -Force }
-    $out = (Invoke-Program { & $pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dest 'themes.ps1') -Init }) -join ' '
-    if ($LASTEXITCODE -eq 0) { Info "$out" } else {
-        Warn "Theme failed: $out"
+    try {
+        $out = (Invoke-Program { & $pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dest 'themes.ps1') -Init }) -join ' '
+        if ($LASTEXITCODE -ne 0) { throw $out }
+        Info $out
+    } catch {
+        Warn "Theme failed: $($_.Exception.Message)"
         $failed += 'Windows Terminal theme'
     }
 }
@@ -261,7 +305,7 @@ try {
     New-Item $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$appDir\uninstall.ps1`""
     $values = @{
-        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.2'; Publisher = 'Wyatt852456'
+        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.3'; Publisher = 'Wyatt852456'
         UninstallString = $uninstall; DisplayIcon = "$(Find-Ahk),0"
         InstallLocation = $dest; URLInfoAbout = 'https://github.com/Wyatt852456/BetterHotkeys'
     }
