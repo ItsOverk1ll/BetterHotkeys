@@ -37,6 +37,10 @@ Then it:
 3. Starts the hotkeys, and adds a shortcut to your Startup folder so they run at every sign-in.
 4. Adds BetterHotkeys to **Settings → Apps** so you can [uninstall](#uninstalling) it like any other app.
 
+### If setup fails
+
+If something goes wrong, the setup window stays open and shows the error in red. A full log is saved to `%TEMP%\betterhotkeys-setup.log`. To open it, press Win + R and paste that path. Please include the log if you [open an issue](../../issues).
+
 ## The menus
 
 ### Hotkey cheatsheet: Win + K

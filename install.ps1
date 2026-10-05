@@ -9,6 +9,28 @@
 # Safe to run again: existing scripts are backed up before being replaced.
 
 $ErrorActionPreference = 'Stop'
+$log = Join-Path $env:TEMP 'betterhotkeys-setup.log'
+try { Start-Transcript $log -Force | Out-Null } catch {}
+
+# Anything unexpected: show the error and keep the window open, instead of closing right away
+trap {
+    Write-Host "`n  Setup stopped with an error:" -ForegroundColor Red
+    Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "  at line $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim())" -ForegroundColor DarkGray
+    Write-Host "  Log: $log" -ForegroundColor DarkGray
+    try { Stop-Transcript | Out-Null } catch {}
+    Read-Host "`n  Press Enter to close"
+    exit 1
+}
+
+# Runs a program and returns its output (including error output) as text. Windows PowerShell 5.1
+# turns any error output from a program into a script-stopping error while $ErrorActionPreference
+# is 'Stop', even when it's redirected, so this relaxes it for the call.
+function Invoke-Program([scriptblock]$programCall) {
+    $ErrorActionPreference = 'Continue'
+    & $programCall 2>&1 | ForEach-Object { "$_" }
+}
+
 $Host.UI.RawUI.WindowTitle = 'BetterHotkeys setup'
 $failed = @()
 $installedNow = @()
@@ -28,7 +50,7 @@ function Find-Winget {
     $candidates = @((Get-Command winget -ErrorAction SilentlyContinue).Source, "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe")
     foreach ($path in $candidates) {
         if ($path -and (Test-Path $path)) {
-            try { if ((& $path --version 2>$null) -match '^v\d') { return $path } } catch {}
+            try { if ((Invoke-Program { & $path --version }) -match '^v\d') { return $path } } catch {}
         }
     }
     $null
@@ -94,20 +116,21 @@ if (-not $winget) {
 if (-not $winget) {
     Warn 'Could not install winget. Install "App Installer" from the Microsoft Store'
     Warn '(https://apps.microsoft.com/detail/9NBLGGH4NNS1), then run this again.'
-    Read-Host "`n  Press Enter to close"
+    try { Stop-Transcript | Out-Null } catch {}
+Read-Host "`n  Press Enter to close"
     exit 1
 }
-Info "ok ($(& $winget --version))"
+Info "ok ($(Invoke-Program { & $winget --version }))"
 
 # --no-upgrade stops winget from upgrading a package that is already installed (older winget lacks it)
-$noUpgrade = if ((& $winget install --help 2>$null) -match '--no-upgrade') { '--no-upgrade' } else { $null }
+$noUpgrade = if ((Invoke-Program { & $winget install --help }) -match '--no-upgrade') { '--no-upgrade' } else { $null }
 
 # Skips the package if $isInstalled finds it, or if winget already knows about it (any install source).
 # winget gets 10 minutes; if it's stuck, it's stopped and setup moves on.
 function Install-Package($id, $name, [scriptblock]$isInstalled) {
     Step "Installing $name"
     if (& $isInstalled) { Info 'already installed, skipping'; return }
-    & $winget list --id $id -e --accept-source-agreements --disable-interactivity *> $null
+    Invoke-Program { & $winget list --id $id -e --accept-source-agreements --disable-interactivity } | Out-Null
     if ($LASTEXITCODE -eq 0) { Info 'already installed, skipping'; return }
 
     $log = Join-Path $env:TEMP "betterhotkeys-winget-$id.log"
@@ -202,7 +225,7 @@ if (-not $pwsh) {
     $failed += 'Windows Terminal theme'
 } else {
     if (Test-Path $wtFile) { Copy-Item $wtFile "$wtFile.before-betterhotkeys" -Force }
-    $out = & $pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dest 'themes.ps1') -Init 2>&1
+    $out = (Invoke-Program { & $pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dest 'themes.ps1') -Init }) -join ' '
     if ($LASTEXITCODE -eq 0) { Info "$out" } else {
         Warn "Theme failed: $out"
         $failed += 'Windows Terminal theme'
@@ -238,7 +261,7 @@ try {
     New-Item $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$appDir\uninstall.ps1`""
     $values = @{
-        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.1'; Publisher = 'Wyatt852456'
+        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.2'; Publisher = 'Wyatt852456'
         UninstallString = $uninstall; DisplayIcon = "$(Find-Ahk),0"
         InstallLocation = $dest; URLInfoAbout = 'https://github.com/Wyatt852456/BetterHotkeys'
     }
@@ -267,4 +290,5 @@ Write-Host '  Win + W               close window' -ForegroundColor Gray
 Write-Host ''
 Info "Add your own hotkeys in $dest\hotkeys.ahk"
 Info 'Already-open terminals pick up the new font after reopening.'
+try { Stop-Transcript | Out-Null } catch {}
 Read-Host "`n  Press Enter to close"

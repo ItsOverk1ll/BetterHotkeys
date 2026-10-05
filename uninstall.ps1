@@ -10,6 +10,14 @@
 #    (installed by an older version), it asks about each program.
 
 $ErrorActionPreference = 'Stop'
+# Anything unexpected: show the error and keep the window open, instead of closing right away
+trap {
+    Write-Host "`n  Uninstall stopped with an error:" -ForegroundColor Red
+    Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "  at line $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim())" -ForegroundColor DarkGray
+    Read-Host "`n  Press Enter to close"
+    exit 1
+}
 $Host.UI.RawUI.WindowTitle = 'BetterHotkeys uninstall'
 $failed = @()
 
