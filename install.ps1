@@ -78,38 +78,59 @@ function Get-File($url, $file, $label) {
     } finally { $out.Close(); $in.Close(); $response.Close() }
 }
 
+# "v1.29.380" -> [version] 1.29.380, or $null
+function Get-WingetVersion($path) {
+    $text = (Invoke-Program { & $path --version }) | Select-Object -First 1
+    if ($text -match '^v(\d+\.\d+(\.\d+)?)') { [version]$Matches[1] }
+}
+
+# Installs (or updates) App Installer, which contains winget, and its dependencies from winget's
+# GitHub releases
+function Install-WingetFromGitHub {
+    $tmp = Join-Path $env:TEMP 'betterhotkeys-winget'
+    try {
+        New-Item -ItemType Directory -Force $tmp | Out-Null
+        $base = 'https://github.com/microsoft/winget-cli/releases/latest/download'
+        Get-File "$base/DesktopAppInstaller_Dependencies.zip" "$tmp\deps.zip" 'dependencies'
+        Get-File "$base/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle" "$tmp\winget.msixbundle" 'winget'
+        Info 'Installing winget (this can take a minute)...'
+        Expand-Archive "$tmp\deps.zip" "$tmp\deps" -Force
+        # The zip has a folder per architecture (x64, arm64, ...)
+        $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+        $deps = @(Get-ChildItem "$tmp\deps" -Recurse -Include *.appx, *.msix |
+            Where-Object { $_.FullName -match "\\$arch\\" } | Select-Object -ExpandProperty FullName)
+        $ProgressPreference = 'SilentlyContinue'
+        if ($deps) { Add-AppxPackage -Path "$tmp\winget.msixbundle" -DependencyPath $deps -ForceApplicationShutdown }
+        else { Add-AppxPackage -Path "$tmp\winget.msixbundle" -ForceApplicationShutdown }
+        $ProgressPreference = 'Continue'
+    } catch { Info "that didn't work: $($_.Exception.Message)" }
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# Windows PowerShell 5.1 may not use TLS 1.2 by default, which GitHub requires
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
 # winget comes with "App Installer". If it's missing or broken, first try registering the copy
-# Windows already has (common on a brand-new account), then install App Installer and its
-# dependencies straight from winget's GitHub releases.
+# Windows already has (common on a brand-new account), then install it from GitHub. An old winget
+# (older Windows 10 images) doesn't know options setup uses, so it's updated the same way.
 Step 'Checking winget'
 $winget = Find-Winget
 if (-not $winget) {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
     Info 'Registering App Installer...'
     try { Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe } catch {}
     $winget = Find-Winget
-
-    if (-not $winget) {
-        Info 'Downloading winget from GitHub (about 300 MB)...'
-        $tmp = Join-Path $env:TEMP 'betterhotkeys-winget'
-        try {
-            New-Item -ItemType Directory -Force $tmp | Out-Null
-            $base = 'https://github.com/microsoft/winget-cli/releases/latest/download'
-            Get-File "$base/DesktopAppInstaller_Dependencies.zip" "$tmp\deps.zip" 'dependencies'
-            Get-File "$base/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle" "$tmp\winget.msixbundle" 'winget'
-            Info 'Installing winget (this can take a minute)...'
-            Expand-Archive "$tmp\deps.zip" "$tmp\deps" -Force
-            # The zip has a folder per architecture (x64, arm64, ...)
-            $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
-            $deps = @(Get-ChildItem "$tmp\deps" -Recurse -Include *.appx, *.msix |
-                Where-Object { $_.FullName -match "\\$arch\\" } | Select-Object -ExpandProperty FullName)
-            $ProgressPreference = 'SilentlyContinue'
-            if ($deps) { Add-AppxPackage -Path "$tmp\winget.msixbundle" -DependencyPath $deps -ForceApplicationShutdown }
-            else { Add-AppxPackage -Path "$tmp\winget.msixbundle" -ForceApplicationShutdown }
-            $ProgressPreference = 'Continue'
-        } catch { Info "that didn't work: $($_.Exception.Message)" }
-        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+$minimumWinget = [version]'1.6.0'
+if (-not $winget) {
+    Info 'Downloading winget from GitHub (about 300 MB)...'
+    Install-WingetFromGitHub
+    $winget = Find-Winget
+} else {
+    $version = Get-WingetVersion $winget
+    if ($version -and $version -lt $minimumWinget) {
+        Info "winget $version is too old, updating it from GitHub (about 300 MB)..."
+        Install-WingetFromGitHub
+        # If the update didn't work, carry on with the old one
         $winget = Find-Winget
     }
 }
@@ -117,7 +138,7 @@ if (-not $winget) {
     Warn 'Could not install winget. Install "App Installer" from the Microsoft Store'
     Warn '(https://apps.microsoft.com/detail/9NBLGGH4NNS1), then run this again.'
     try { Stop-Transcript | Out-Null } catch {}
-Read-Host "`n  Press Enter to close"
+    Read-Host "`n  Press Enter to close"
     exit 1
 }
 Info "ok ($(Invoke-Program { & $winget --version }))"
@@ -365,7 +386,7 @@ try {
     New-Item $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$appDir\uninstall.ps1`""
     $values = @{
-        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.5'; Publisher = 'Wyatt852456'
+        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.6'; Publisher = 'Wyatt852456'
         UninstallString = $uninstall; DisplayIcon = "$(Find-Ahk),0"
         InstallLocation = $dest; URLInfoAbout = 'https://github.com/Wyatt852456/BetterHotkeys'
     }
