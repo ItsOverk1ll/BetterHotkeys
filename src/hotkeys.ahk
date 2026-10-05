@@ -30,7 +30,11 @@ PopupTerminal(name, script, width, height, onBlur := "") {
     }
     ; Full path, since PATH may not include PowerShell 7 until the next sign-in after setup
     pwsh := FileExist(A_ProgramFiles "\PowerShell\7\pwsh.exe") ? '"' A_ProgramFiles '\PowerShell\7\pwsh.exe"' : "pwsh"
-    Run('wt.exe -w new --focus --title "' name '" --suppressApplicationTitle ' pwsh ' -NoLogo -NoProfile -File "' A_ScriptDir "\" script '"')
+    try Run('wt.exe -w new --focus --title "' name '" --suppressApplicationTitle ' pwsh ' -NoLogo -NoProfile -File "' A_ScriptDir "\" script '"')
+    catch as err {
+        MsgBox("Windows Terminal couldn't start:`n" err.Extra "`n`nRun the BetterHotkeys setup again to repair it.", "BetterHotkeys", "Iconx")
+        return
+    }
     if !WinWait(title, , 5)
         return
     scale := A_ScreenDPI / 96

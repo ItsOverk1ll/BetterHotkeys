@@ -128,13 +128,14 @@ $noUpgrade = if ((Invoke-Program { & $winget install --help }) -match '--no-upgr
 # Skips the package if $isInstalled finds it, or if winget already knows about it (any install source;
 # -SkipListCheck trusts only $isInstalled). winget gets 10 minutes; if it's stuck, it's stopped and
 # setup moves on.
-function Install-Package($id, $name, [scriptblock]$isInstalled, [switch]$SkipListCheck) {
+function Install-Package($id, $name, [scriptblock]$isInstalled, [switch]$SkipListCheck, [scriptblock]$BeforeInstall) {
     Step "Installing $name"
     if (& $isInstalled) { Info 'already installed, skipping'; return }
     if (-not $SkipListCheck) {
         Invoke-Program { & $winget list --id $id -e --accept-source-agreements --disable-interactivity } | Out-Null
         if ($LASTEXITCODE -eq 0) { Info 'already installed, skipping'; return }
     }
+    if ($BeforeInstall) { & $BeforeInstall }
 
     $log = Join-Path $env:TEMP "betterhotkeys-winget-$id.log"
     $wingetArgs = @('install', '--id', $id, '-e', '--source', 'winget', '--silent', '--accept-source-agreements',
@@ -191,6 +192,17 @@ function Find-Pwsh {
     $null
 }
 
+# True if Windows Terminal starts. Like PowerShell above, a Microsoft Store copy without a license is
+# installed but fails with "No applicable app licenses found". The check flashes a window briefly.
+function Test-Terminal {
+    if (-not (Get-AppxPackage Microsoft.WindowsTerminal)) { return $false }
+    try {
+        Start-Process "$env:LOCALAPPDATA\Microsoft\WindowsApps\wt.exe" -ArgumentList '-w new cmd /c exit'
+        $script:terminalStarted = $true
+    } catch { $script:terminalStarted = $false }
+    $script:terminalStarted
+}
+
 # Installs PowerShell 7 from the official MSI on GitHub (asks for admin rights)
 function Install-PwshMsi {
     $release = Invoke-RestMethod 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest' -Headers @{ 'User-Agent' = 'BetterHotkeys' }
@@ -222,8 +234,19 @@ if (-not (Find-Pwsh)) {
         if ($failed -notcontains 'PowerShell 7') { $failed += 'PowerShell 7' }
     }
 }
-Install-Package 'Microsoft.WindowsTerminal' 'Windows Terminal' {
-    [bool](Get-AppxPackage Microsoft.WindowsTerminal*) -or (Test-Any 'wt')
+# Checked by starting it. A copy that doesn't start (no Store license) is removed first, then
+# winget installs Microsoft's GitHub release, which doesn't need a Store license.
+Install-Package 'Microsoft.WindowsTerminal' 'Windows Terminal' { Test-Terminal } -SkipListCheck -BeforeInstall {
+    $broken = Get-AppxPackage Microsoft.WindowsTerminal
+    if ($broken) {
+        Info "the installed copy doesn't start (missing Microsoft Store license), replacing it..."
+        try { $broken | Remove-AppxPackage } catch { Warn "could not remove it: $($_.Exception.Message)" }
+    }
+}
+if (-not $terminalStarted -and -not (Test-Terminal)) {
+    Warn "Windows Terminal still doesn't start, so the hotkey menus won't open."
+    Warn 'Try installing "Windows Terminal" from the Microsoft Store, then run this again.'
+    if ($failed -notcontains 'Windows Terminal') { $failed += 'Windows Terminal' }
 }
 Install-Package 'DEVCOM.JetBrainsMonoNerdFont' 'JetBrainsMono Nerd Font' { Test-Font }
 Install-Package 'Git.Git' 'Git' {
@@ -305,7 +328,7 @@ try {
     New-Item $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$appDir\uninstall.ps1`""
     $values = @{
-        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.3'; Publisher = 'Wyatt852456'
+        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.4'; Publisher = 'Wyatt852456'
         UninstallString = $uninstall; DisplayIcon = "$(Find-Ahk),0"
         InstallLocation = $dest; URLInfoAbout = 'https://github.com/Wyatt852456/BetterHotkeys'
     }
