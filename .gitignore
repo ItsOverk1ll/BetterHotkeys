@@ -3,3 +3,6 @@ BetterHotkeys.exe
 
 # Per-machine state written by the theme picker
 src/theme.txt
+
+# Local notes for Claude Code sessions
+CLAUDE.md
