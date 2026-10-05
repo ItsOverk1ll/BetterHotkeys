@@ -15,7 +15,7 @@ Omarchy-style keyboard menus for Windows 11. Press a hotkey and a small terminal
 
 Windows SmartScreen will probably say it "protected your PC", because the exe isn't code-signed. Click **More info → Run anyway**. If you'd rather not run an unsigned exe, the [code is all here](#building-from-source) and you can run `install.ps1` yourself.
 
-Running it again is safe. It skips anything already installed and backs up files before replacing them.
+Running it again is safe. It skips anything already installed and backs up files before replacing them. To remove it, see [Uninstalling](#uninstalling).
 
 ## What it installs
 
@@ -35,6 +35,7 @@ Then it:
 1. Copies the scripts to `Documents\AutoHotkey`.
 2. Applies the Hackerman theme to Windows Terminal: colors, tab bar, font, cursor, padding and slight transparency. Your existing terminal settings are kept, and a backup is saved as `settings.json.before-betterhotkeys`.
 3. Starts the hotkeys, and adds a shortcut to your Startup folder so they run at every sign-in.
+4. Adds BetterHotkeys to **Settings → Apps** so you can [uninstall](#uninstalling) it like any other app.
 
 ## The menus
 
@@ -84,6 +85,7 @@ Then double-click `hotkeys.ahk` to reload it. In AutoHotkey, `#` is Win, `+` is 
 | File | What it does |
 | --- | --- |
 | `install.ps1` | The installer. Runs in Windows PowerShell 5.1, which ships with Windows. |
+| `uninstall.ps1` | The uninstaller. Registered in Settings → Apps by the installer. |
 | `build.ps1` | Packages `install.ps1` and `src\` into `BetterHotkeys.exe` |
 | `src\hotkeys.ahk` | The hotkeys, and a helper that opens the popup terminals |
 | `src\cheatsheet.ps1`, `src\send-hotkey.ahk` | Win + K cheatsheet, and the helper that runs the selected hotkey |
@@ -110,10 +112,19 @@ If you've edited the scripts in `Documents\AutoHotkey`, `.\build.ps1 -SyncFromLi
 
 ## Uninstalling
 
-1. Delete `hotkeys.lnk` from your Startup folder (press Win + R and enter `shell:startup`), then exit AutoHotkey from the system tray.
-2. Delete `Documents\AutoHotkey`, and the **Web Apps** Start Menu folder (Win + R → `shell:programs`).
-3. To restore your old terminal settings, rename `settings.json.before-betterhotkeys` back to `settings.json`. It's in `%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState`.
-4. If you want, uninstall the programs above from **Settings → Apps**.
+Open **Settings → Apps → Installed apps**, find **BetterHotkeys**, and click **Uninstall**. It:
+
+- stops the hotkeys and removes them from startup
+- deletes the BetterHotkeys scripts from `Documents\AutoHotkey`. This includes `hotkeys.ahk`, so copy it first if you added hotkeys you want to keep.
+- asks whether to remove your web apps too
+- resets Windows Terminal to its default theme, font and cursor. Your profiles and other settings are kept, and the previous file is saved as `settings.json.before-uninstall`.
+- uninstalls the programs that setup installed: AutoHotkey, fzf, JetBrainsMono Nerd Font and Git. Programs you already had before running setup are left alone. **PowerShell 7 and Windows Terminal are always kept**, since Windows 11 ships with Terminal.
+
+If Settings doesn't list BetterHotkeys (for example, you installed v1.0.0), run [`uninstall.ps1`](uninstall.ps1) yourself. It will ask about each program instead:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File uninstall.ps1
+```
 
 ## Credits
 

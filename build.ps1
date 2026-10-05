@@ -22,7 +22,7 @@ if ($SyncFromLive) {
 
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $stage | Out-Null
-Copy-Item (Join-Path $PSScriptRoot 'install.ps1') $stage
+Copy-Item (Join-Path $PSScriptRoot 'install.ps1'), (Join-Path $PSScriptRoot 'uninstall.ps1') $stage
 Copy-Item "$src\*" $stage
 
 $files = Get-ChildItem $stage -File | Select-Object -ExpandProperty Name

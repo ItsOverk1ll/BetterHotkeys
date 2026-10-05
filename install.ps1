@@ -3,12 +3,14 @@
 #  - Copies the hotkey scripts to Documents\AutoHotkey and starts them at sign-in:
 #      Win+K  hotkey cheatsheet   Win+Shift+Space  web app manager   Win+Shift+T  theme picker
 #      Win+W  close window
+#  - Registers an uninstaller in Settings > Apps (uninstall.ps1 removes what setup installed)
 #  - Applies an Omarchy theme (Hackerman by default) to Windows Terminal; Win+Shift+T switches themes
 # Safe to run again: existing scripts are backed up before being replaced.
 
 $ErrorActionPreference = 'Stop'
 $Host.UI.RawUI.WindowTitle = 'BetterHotkeys setup'
 $failed = @()
+$installedNow = @()
 
 function Step($text) { Write-Host "`n> $text" -ForegroundColor Green }
 function Info($text) { Write-Host "  $text" -ForegroundColor DarkGray }
@@ -59,7 +61,9 @@ function Install-Package($id, $name, [scriptblock]$isInstalled) {
     }
     Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*(Found|Successfully|Starting|The installer)' } |
         ForEach-Object { Info $_.Trim() }
-    # 0x8A15002B / 0x8A150061 / 0x8A150109: already installed, nothing to do
+    # Remember what setup installed, so uninstall.ps1 removes only that (0x8A150109: done after a restart)
+    if ($proc.ExitCode -in 0, -1978334967) { $script:installedNow += $id }
+    # 0x8A15002B / 0x8A150061: already installed, nothing to do
     if ($proc.ExitCode -notin 0, -1978335189, -1978335135, -1978334967) {
         Warn "winget failed for $name (exit $($proc.ExitCode)), see $log"
         $script:failed += $name
@@ -98,6 +102,13 @@ Install-Package 'DEVCOM.JetBrainsMonoNerdFont' 'JetBrainsMono Nerd Font' { Test-
 Install-Package 'Git.Git' 'Git' {
     Test-Any 'git' "$env:ProgramFiles\Git\cmd\git.exe", "${env:ProgramFiles(x86)}\Git\cmd\git.exe", "$env:LOCALAPPDATA\Programs\Git\cmd\git.exe"
 }
+
+# Add to the record kept for uninstall.ps1 (re-runs keep what earlier runs installed)
+$appDir = Join-Path $env:LOCALAPPDATA 'BetterHotkeys'
+New-Item -ItemType Directory -Force $appDir | Out-Null
+$manifest = Join-Path $appDir 'installed.txt'
+$record = @(Get-Content $manifest -ErrorAction SilentlyContinue) + $installedNow | Where-Object { $_ } | Sort-Object -Unique
+Set-Content $manifest $record
 
 # ---------------------------------------------------------------- scripts
 
@@ -153,6 +164,29 @@ if ($ahk) {
 } else {
     Warn 'AutoHotkey not found, hotkeys not started'
     $failed += 'start hotkeys'
+}
+
+# ---------------------------------------------------------------- uninstaller
+
+# Lists BetterHotkeys in Settings > Apps > Installed apps, with an Uninstall button
+Step 'Registering uninstaller'
+try {
+    Copy-Item (Join-Path $PSScriptRoot 'uninstall.ps1') $appDir -Force
+    $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\BetterHotkeys'
+    New-Item $key -Force | Out-Null
+    $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$appDir\uninstall.ps1`""
+    $values = @{
+        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.1.0'; Publisher = 'Wyatt852456'
+        UninstallString = $uninstall; DisplayIcon = "$(Find-Ahk),0"
+        InstallLocation = $dest; URLInfoAbout = 'https://github.com/Wyatt852456/BetterHotkeys'
+    }
+    foreach ($name in $values.Keys) { Set-ItemProperty $key $name $values[$name] }
+    Set-ItemProperty $key 'NoModify' 1 -Type DWord
+    Set-ItemProperty $key 'NoRepair' 1 -Type DWord
+    Info 'Settings > Apps > Installed apps > BetterHotkeys'
+} catch {
+    Warn "Could not register uninstaller: $($_.Exception.Message)"
+    $failed += 'uninstaller'
 }
 
 # ---------------------------------------------------------------- done
