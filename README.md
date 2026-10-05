@@ -9,13 +9,19 @@ Omarchy-style keyboard menus for Windows. Works on **Windows 10 and Windows 11**
 
 ![Theme picker](docs/themes.png)
 
-## Download
+## Install
 
-**[Download BetterHotkeys.exe](../../releases/latest/download/BetterHotkeys.exe)** and run it. It takes a minute or two on a fresh PC.
+**Option 1: one line, no warnings (recommended).** Right-click the Start button, open **Terminal** or **Windows PowerShell**, then paste this and press Enter:
 
-Windows SmartScreen will probably say it "protected your PC", because the exe isn't code-signed. Click **More info → Run anyway**. If you'd rather not run an unsigned exe, the [code is all here](#building-from-source) and you can run `install.ps1` yourself.
+```powershell
+irm https://raw.githubusercontent.com/ItsOverk1ll/BetterHotkeys/main/web-install.ps1 | iex
+```
 
-Running it again is safe. It skips anything already installed and backs up files before replacing them. To remove it, see [Uninstalling](#uninstalling).
+It downloads the latest release and runs the installer right there. Edge and SmartScreen aren't involved, so there are no warnings. You can [read the script](web-install.ps1) first.
+
+**Option 2: [download BetterHotkeys.exe](../../releases/latest/download/BetterHotkeys.exe)** and run it. The exe isn't code-signed, so expect warnings. In Edge, choose **… → Keep → Keep anyway**. In SmartScreen, choose **More info → Run anyway**.
+
+Both options run the same installer, and it takes a few minutes on a fresh PC. Running it again is safe. It skips anything already installed and backs up files before replacing them. To remove it, see [Uninstalling](#uninstalling).
 
 ## What it installs
 
@@ -89,6 +95,7 @@ Then double-click `hotkeys.ahk` to reload it. In AutoHotkey, `#` is Win, `+` is 
 | File | What it does |
 | --- | --- |
 | `install.ps1` | The installer. Runs in Windows PowerShell 5.1, which ships with Windows. |
+| `web-install.ps1` | The one-line install. Downloads the latest release's source and runs `install.ps1`. |
 | `uninstall.ps1` | The uninstaller. Registered in Settings → Apps by the installer. |
 | `build.ps1` | Packages `install.ps1` and `src\` into `BetterHotkeys.exe` |
 | `src\hotkeys.ahk` | The hotkeys, and a helper that opens the popup terminals |
