@@ -19,7 +19,7 @@ Running it again is safe. It skips anything already installed and backs up files
 
 ## What it installs
 
-The installer uses [winget](https://learn.microsoft.com/windows/package-manager/winget/), which comes with Windows 11, and skips anything you already have:
+The installer uses [winget](https://learn.microsoft.com/windows/package-manager/winget/), Windows' built-in package manager, and skips anything you already have. If winget is missing or broken (on a brand-new account, for example), the installer sets it up first. It tries re-registering the copy Windows already has, then Microsoft's [WinGet PowerShell module](https://www.powershellgallery.com/packages/Microsoft.WinGet.Client), and finally downloads it straight from [winget's GitHub releases](https://github.com/microsoft/winget-cli/releases).
 
 | Program | Why |
 | --- | --- |

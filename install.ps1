@@ -1,5 +1,6 @@
 # BetterHotkeys setup for a fresh Windows 11 PC. Runs in Windows PowerShell 5.1 (what ships with Windows).
-#  - Installs AutoHotkey v2, fzf, PowerShell 7, Windows Terminal, JetBrainsMono Nerd Font, Git (via winget)
+#  - Installs winget if it's missing, then AutoHotkey v2, fzf, PowerShell 7, Windows Terminal,
+#    JetBrainsMono Nerd Font and Git with it
 #  - Copies the hotkey scripts to Documents\AutoHotkey and starts them at sign-in:
 #      Win+K  hotkey cheatsheet   Win+Shift+Space  web app manager   Win+Shift+T  theme picker
 #      Win+W  close window
@@ -22,20 +23,70 @@ Write-Host '  hotkey cheatsheet, web apps, terminal theme' -ForegroundColor Dark
 
 # ---------------------------------------------------------------- winget packages
 
+# Path to a working winget, or $null
+function Find-Winget {
+    $candidates = @((Get-Command winget -ErrorAction SilentlyContinue).Source, "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe")
+    foreach ($path in $candidates) {
+        if ($path -and (Test-Path $path)) {
+            try { if ((& $path --version 2>$null) -match '^v\d') { return $path } } catch {}
+        }
+    }
+    $null
+}
+
+# winget comes with "App Installer". If it's missing or broken, try in order: registering the copy
+# Windows already has (common on a brand-new account), Microsoft's WinGet PowerShell module, then
+# installing App Installer and its dependencies straight from winget's GitHub releases.
 Step 'Checking winget'
-$winget = (Get-Command winget -ErrorAction SilentlyContinue).Source
+$winget = Find-Winget
 if (-not $winget) {
-    # On a brand-new PC, App Installer may not be registered for this user yet
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $ProgressPreference = 'SilentlyContinue'  # Invoke-WebRequest is very slow with the progress bar in 5.1
+
     Info 'Registering App Installer...'
     try { Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe } catch {}
-    $winget = "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe"
+    $winget = Find-Winget
+
+    if (-not $winget) {
+        Info 'Installing winget with Microsoft.WinGet.Client...'
+        try {
+            if (-not (Get-PackageProvider NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+                Install-PackageProvider NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+            }
+            Install-Module Microsoft.WinGet.Client -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+            Import-Module Microsoft.WinGet.Client
+            Repair-WinGetPackageManager -Latest -Force | Out-Null
+        } catch { Info "that didn't work: $($_.Exception.Message)" }
+        $winget = Find-Winget
+    }
+
+    if (-not $winget) {
+        Info 'Downloading App Installer from GitHub (about 300 MB)...'
+        try {
+            $tmp = Join-Path $env:TEMP 'betterhotkeys-winget'
+            New-Item -ItemType Directory -Force $tmp | Out-Null
+            $base = 'https://github.com/microsoft/winget-cli/releases/latest/download'
+            Invoke-WebRequest "$base/DesktopAppInstaller_Dependencies.zip" -OutFile "$tmp\deps.zip" -UseBasicParsing
+            Invoke-WebRequest "$base/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle" -OutFile "$tmp\winget.msixbundle" -UseBasicParsing
+            Expand-Archive "$tmp\deps.zip" "$tmp\deps" -Force
+            # The zip has a folder per architecture (x64, arm64, ...)
+            $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+            $deps = @(Get-ChildItem "$tmp\deps" -Recurse -Include *.appx, *.msix |
+                Where-Object { $_.FullName -match "\\$arch\\" } | Select-Object -ExpandProperty FullName)
+            if ($deps) { Add-AppxPackage -Path "$tmp\winget.msixbundle" -DependencyPath $deps -ForceApplicationShutdown }
+            else { Add-AppxPackage -Path "$tmp\winget.msixbundle" -ForceApplicationShutdown }
+            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        } catch { Info "that didn't work: $($_.Exception.Message)" }
+        $winget = Find-Winget
+    }
 }
-if (-not (Test-Path $winget)) {
-    Warn 'winget not found. Update "App Installer" from the Microsoft Store, then run this again.'
+if (-not $winget) {
+    Warn 'Could not install winget. Install "App Installer" from the Microsoft Store'
+    Warn '(https://apps.microsoft.com/detail/9NBLGGH4NNS1), then run this again.'
     Read-Host "`n  Press Enter to close"
     exit 1
 }
-Info 'ok'
+Info "ok ($(& $winget --version))"
 
 # --no-upgrade stops winget from upgrading a package that is already installed (older winget lacks it)
 $noUpgrade = if ((& $winget install --help 2>$null) -match '--no-upgrade') { '--no-upgrade' } else { $null }
@@ -176,7 +227,7 @@ try {
     New-Item $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$appDir\uninstall.ps1`""
     $values = @{
-        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.1.0'; Publisher = 'Wyatt852456'
+        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.0'; Publisher = 'Wyatt852456'
         UninstallString = $uninstall; DisplayIcon = "$(Find-Ahk),0"
         InstallLocation = $dest; URLInfoAbout = 'https://github.com/Wyatt852456/BetterHotkeys'
     }
