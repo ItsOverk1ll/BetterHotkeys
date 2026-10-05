@@ -15,10 +15,17 @@ $themes = Get-Themes
 $esc = [char]27
 
 function Set-Theme($id, [switch]$Init) {
+    # The installed Windows Terminal's settings, plus the portable copy's when setup installed one
+    # (used when the installed Terminal won't start, e.g. a Microsoft Store copy without a license)
+    $wtDirs = @("$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState")
+    if (Test-Path "$env:LOCALAPPDATA\BetterHotkeys\terminal\wt.exe") { $wtDirs += "$env:LOCALAPPDATA\Microsoft\Windows Terminal" }
+    foreach ($wtDir in $wtDirs) { Set-TerminalTheme $id (Join-Path $wtDir 'settings.json') -Init:$Init }
+    Set-Content (Join-Path $PSScriptRoot 'theme.txt') $id -NoNewline
+}
+
+function Set-TerminalTheme($id, $wtFile, [switch]$Init) {
     $t = $themes[$id]
-    $wtDir = "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState"
-    $wtFile = Join-Path $wtDir 'settings.json'
-    New-Item -ItemType Directory -Force $wtDir | Out-Null
+    New-Item -ItemType Directory -Force (Split-Path $wtFile) | Out-Null
     $settings = if (Test-Path $wtFile) { Get-Content $wtFile -Raw | ConvertFrom-Json -AsHashtable }
     if (-not $settings) { $settings = [ordered]@{ '$schema' = 'https://aka.ms/terminal-profiles-schema' } }
 
@@ -56,7 +63,6 @@ function Set-Theme($id, [switch]$Init) {
     }
 
     [IO.File]::WriteAllText($wtFile, ($settings | ConvertTo-Json -Depth 32), [Text.UTF8Encoding]::new($false))
-    Set-Content (Join-Path $PSScriptRoot 'theme.txt') $id -NoNewline
 }
 
 if ($PSBoundParameters.ContainsKey('Apply') -or $Init) {

@@ -203,6 +203,30 @@ function Test-Terminal {
     $script:terminalStarted
 }
 
+# Last resort when the installed Windows Terminal won't start: Microsoft's portable build, a plain
+# folder that needs no package, Store license or admin rights. The hotkeys use it when wt.exe fails.
+$portableTerminal = Join-Path $env:LOCALAPPDATA 'BetterHotkeys\terminal'
+function Install-PortableTerminal {
+    $release = Invoke-RestMethod 'https://api.github.com/repos/microsoft/terminal/releases/latest' -Headers @{ 'User-Agent' = 'BetterHotkeys' }
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    $asset = $release.assets | Where-Object { $_.name -match "_$arch\.zip$" } | Select-Object -First 1
+    if (-not $asset) { throw "no $arch build in Windows Terminal $($release.tag_name)" }
+    $zip = Join-Path $env:TEMP $asset.name
+    $unzipped = Join-Path $env:TEMP 'betterhotkeys-terminal'
+    Get-File $asset.browser_download_url $zip 'Windows Terminal'
+    Expand-Archive $zip $unzipped -Force
+    # The zip holds one folder, terminal-<version>
+    $folder = (Get-ChildItem $unzipped -Recurse -Filter wt.exe | Select-Object -First 1).DirectoryName
+    New-Item -ItemType Directory -Force $portableTerminal | Out-Null
+    Copy-Item "$folder\*" $portableTerminal -Recurse -Force
+    Remove-Item $zip, $unzipped -Recurse -Force -ErrorAction SilentlyContinue
+}
+function Test-PortableTerminal {
+    $wt = Join-Path $portableTerminal 'wt.exe'
+    if (-not (Test-Path $wt)) { return $false }
+    try { Start-Process $wt -ArgumentList '-w new cmd /c exit'; $true } catch { $false }
+}
+
 # Installs PowerShell 7 from the official MSI on GitHub (asks for admin rights)
 function Install-PwshMsi {
     $release = Invoke-RestMethod 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest' -Headers @{ 'User-Agent' = 'BetterHotkeys' }
@@ -244,9 +268,22 @@ Install-Package 'Microsoft.WindowsTerminal' 'Windows Terminal' { Test-Terminal }
     }
 }
 if (-not $terminalStarted -and -not (Test-Terminal)) {
-    Warn "Windows Terminal still doesn't start, so the hotkey menus won't open."
-    Warn 'Try installing "Windows Terminal" from the Microsoft Store, then run this again.'
-    if ($failed -notcontains 'Windows Terminal') { $failed += 'Windows Terminal' }
+    $portableWorks = Test-PortableTerminal
+    if ($portableWorks) {
+        Info 'using the portable Windows Terminal installed earlier'
+    } else {
+        Info "Windows Terminal still doesn't start, downloading the portable version..."
+        try { Install-PortableTerminal } catch { Info "that didn't work: $($_.Exception.Message)" }
+        $portableWorks = Test-PortableTerminal
+        if ($portableWorks) { Info "ok, the hotkey menus will use it ($portableTerminal)" }
+    }
+    if ($portableWorks) {
+        $failed = @($failed | Where-Object { $_ -ne 'Windows Terminal' })
+    } else {
+        Warn "Windows Terminal doesn't start, so the hotkey menus won't open."
+        Warn 'Try installing "Windows Terminal" from the Microsoft Store, then run this again.'
+        if ($failed -notcontains 'Windows Terminal') { $failed += 'Windows Terminal' }
+    }
 }
 Install-Package 'DEVCOM.JetBrainsMonoNerdFont' 'JetBrainsMono Nerd Font' { Test-Font }
 Install-Package 'Git.Git' 'Git' {
@@ -328,7 +365,7 @@ try {
     New-Item $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$appDir\uninstall.ps1`""
     $values = @{
-        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.4'; Publisher = 'Wyatt852456'
+        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.5'; Publisher = 'Wyatt852456'
         UninstallString = $uninstall; DisplayIcon = "$(Find-Ahk),0"
         InstallLocation = $dest; URLInfoAbout = 'https://github.com/Wyatt852456/BetterHotkeys'
     }

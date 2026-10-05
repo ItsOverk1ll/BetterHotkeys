@@ -87,6 +87,10 @@ Get-CimInstance Win32_Process -Filter "Name like 'AutoHotkey%'" |
 Get-CimInstance Win32_Process -Filter "Name='pwsh.exe'" |
     Where-Object { $_.CommandLine -and $_.CommandLine.Contains($dest) } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+# The portable Windows Terminal setup may have installed, so its folder can be deleted
+Get-Process WindowsTerminal, OpenConsole -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path.StartsWith($appDir, [StringComparison]::OrdinalIgnoreCase) } |
+    Stop-Process -Force -ErrorAction SilentlyContinue
 Remove-Item $startup -ErrorAction SilentlyContinue
 Info 'stopped and removed from startup'
 
@@ -100,37 +104,42 @@ if (Test-Path $themesJson) {
     $all = Get-Content $themesJson -Raw | ConvertFrom-Json
     $themeNames = @($all.PSObject.Properties | ForEach-Object { $_.Value.name })
 }
-try {
-    if (Test-Path $wtFile) {
-        Remove-TypeData System.Array -ErrorAction SilentlyContinue  # 5.1: keep arrays as arrays in JSON
-        Copy-Item $wtFile "$wtFile.before-uninstall" -Force
-        $settings = Get-Content $wtFile -Raw | ConvertFrom-Json
-        function Remove-Prop($obj, $name) { if ($obj -and $obj.PSObject.Properties[$name]) { $obj.PSObject.Properties.Remove($name) } }
+# The installed Terminal's settings, plus the portable copy's if setup installed one
+$wtFiles = @($wtFile)
+if (Test-Path "$appDir\terminal\wt.exe") { $wtFiles += "$env:LOCALAPPDATA\Microsoft\Windows Terminal\settings.json" }
+foreach ($wtFile in $wtFiles) {
+    try {
+        if (Test-Path $wtFile) {
+            Remove-TypeData System.Array -ErrorAction SilentlyContinue  # 5.1: keep arrays as arrays in JSON
+            Copy-Item $wtFile "$wtFile.before-uninstall" -Force
+            $settings = Get-Content $wtFile -Raw | ConvertFrom-Json
+            function Remove-Prop($obj, $name) { if ($obj -and $obj.PSObject.Properties[$name]) { $obj.PSObject.Properties.Remove($name) } }
 
-        if ($settings.theme -in 'Omarchy', 'Hackerman') { Remove-Prop $settings 'theme' }
-        if ($settings.PSObject.Properties['themes']) {
-            $settings.themes = @($settings.themes | Where-Object { $_.name -notin 'Omarchy', 'Hackerman' })
+            if ($settings.theme -in 'Omarchy', 'Hackerman') { Remove-Prop $settings 'theme' }
+            if ($settings.PSObject.Properties['themes']) {
+                $settings.themes = @($settings.themes | Where-Object { $_.name -notin 'Omarchy', 'Hackerman' })
+            }
+            if ($settings.PSObject.Properties['schemes']) {
+                $settings.schemes = @($settings.schemes | Where-Object { $_.name -notin $themeNames })
+            }
+            # Only undo values setup set, in case you changed them yourself
+            $defaults = $settings.profiles.defaults
+            if ($defaults) {
+                if ($defaults.colorScheme -in $themeNames) { Remove-Prop $defaults 'colorScheme' }
+                if ($defaults.cursorShape -eq 'filledBox') { Remove-Prop $defaults 'cursorShape' }
+                if ($defaults.font -and $defaults.font.face -like 'JetBrainsMono*') { Remove-Prop $defaults 'font' }
+                if ($defaults.opacity -eq 95) { Remove-Prop $defaults 'opacity' }
+                if ("$($defaults.padding)" -eq '10') { Remove-Prop $defaults 'padding' }
+            }
+            [IO.File]::WriteAllText($wtFile, ($settings | ConvertTo-Json -Depth 32), (New-Object Text.UTF8Encoding $false))
+            Info 'default theme, font and cursor restored (previous file kept as settings.json.before-uninstall)'
+        } else {
+            Info 'no settings file, nothing to reset'
         }
-        if ($settings.PSObject.Properties['schemes']) {
-            $settings.schemes = @($settings.schemes | Where-Object { $_.name -notin $themeNames })
-        }
-        # Only undo values setup set, in case you changed them yourself
-        $defaults = $settings.profiles.defaults
-        if ($defaults) {
-            if ($defaults.colorScheme -in $themeNames) { Remove-Prop $defaults 'colorScheme' }
-            if ($defaults.cursorShape -eq 'filledBox') { Remove-Prop $defaults 'cursorShape' }
-            if ($defaults.font -and $defaults.font.face -like 'JetBrainsMono*') { Remove-Prop $defaults 'font' }
-            if ($defaults.opacity -eq 95) { Remove-Prop $defaults 'opacity' }
-            if ("$($defaults.padding)" -eq '10') { Remove-Prop $defaults 'padding' }
-        }
-        [IO.File]::WriteAllText($wtFile, ($settings | ConvertTo-Json -Depth 32), (New-Object Text.UTF8Encoding $false))
-        Info 'default theme, font and cursor restored (previous file kept as settings.json.before-uninstall)'
-    } else {
-        Info 'no settings file, nothing to reset'
+    } catch {
+        Warn "Could not reset ${wtFile}: $($_.Exception.Message)"
+        $failed += 'Windows Terminal reset'
     }
-} catch {
-    Warn "Could not reset Windows Terminal: $($_.Exception.Message)"
-    $failed += 'Windows Terminal reset'
 }
 
 # ---------------------------------------------------------------- files

@@ -30,10 +30,20 @@ PopupTerminal(name, script, width, height, onBlur := "") {
     }
     ; Full path, since PATH may not include PowerShell 7 until the next sign-in after setup
     pwsh := FileExist(A_ProgramFiles "\PowerShell\7\pwsh.exe") ? '"' A_ProgramFiles '\PowerShell\7\pwsh.exe"' : "pwsh"
-    try Run('wt.exe -w new --focus --title "' name '" --suppressApplicationTitle ' pwsh ' -NoLogo -NoProfile -File "' A_ScriptDir "\" script '"')
+    args := ' -w new --focus --title "' name '" --suppressApplicationTitle ' pwsh ' -NoLogo -NoProfile -File "' A_ScriptDir "\" script '"'
+    ; Setup installs a portable Windows Terminal here when the installed one won't start
+    ; (e.g. a Microsoft Store copy without a license)
+    portable := EnvGet("LOCALAPPDATA") "\BetterHotkeys\terminal\wt.exe"
+    try Run("wt.exe" args)
     catch as err {
-        MsgBox("Windows Terminal couldn't start:`n" err.Extra "`n`nRun the BetterHotkeys setup again to repair it.", "BetterHotkeys", "Iconx")
-        return
+        try {
+            if !FileExist(portable)
+                throw err
+            Run('"' portable '"' args)
+        } catch as err {
+            MsgBox("Windows Terminal couldn't start:`n" err.Extra "`n`nRun the BetterHotkeys setup again to repair it.", "BetterHotkeys", "Iconx")
+            return
+        }
     }
     if !WinWait(title, , 5)
         return

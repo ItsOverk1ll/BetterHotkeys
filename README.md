@@ -26,7 +26,7 @@ The installer uses [winget](https://learn.microsoft.com/windows/package-manager/
 | [AutoHotkey v2](https://www.autohotkey.com) | Listens for the hotkeys |
 | [fzf](https://github.com/junegunn/fzf) | The fuzzy-search menus |
 | [PowerShell 7](https://github.com/PowerShell/PowerShell) | Runs the menu scripts |
-| [Windows Terminal](https://github.com/microsoft/terminal) | Hosts the popups (already on Windows 11) |
+| [Windows Terminal](https://github.com/microsoft/terminal) | Hosts the popups (already on Windows 11). If the installed copy won't start, for example a Microsoft Store copy without a license, setup uses Microsoft's portable build instead. |
 | [JetBrainsMono Nerd Font](https://www.nerdfonts.com) | Terminal font |
 | [Git](https://git-scm.com) | Handy to have |
 
