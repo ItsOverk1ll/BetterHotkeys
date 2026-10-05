@@ -1,6 +1,6 @@
 # BetterHotkeys
 
-Omarchy-style keyboard menus for Windows 11. Press a hotkey and a small terminal menu pops up in the middle of the screen. Type to filter, press Enter to act, press Esc to close.
+Omarchy-style keyboard menus for Windows. Works on **Windows 10 and Windows 11**. Press a hotkey and a small terminal menu pops up in the middle of the screen. Type to filter, press Enter to act, press Esc to close.
 
 - **Win + K**: a searchable cheatsheet of your hotkeys. Press Enter to run the selected one.
 - **Win + Shift + Space**: a web app maker and launcher. Turn any site into its own app window, like Omarchy's web apps.
