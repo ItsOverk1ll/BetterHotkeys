@@ -34,49 +34,60 @@ function Find-Winget {
     $null
 }
 
-# winget comes with "App Installer". If it's missing or broken, try in order: registering the copy
-# Windows already has (common on a brand-new account), Microsoft's WinGet PowerShell module, then
-# installing App Installer and its dependencies straight from winget's GitHub releases.
+# Downloads url to file, printing progress. Fails if the connection stalls for a minute.
+function Get-File($url, $file, $label) {
+    $request = [Net.HttpWebRequest]::Create($url)
+    $request.Timeout = 60000; $request.ReadWriteTimeout = 60000
+    $response = $request.GetResponse()
+    $total = $response.ContentLength
+    $in = $response.GetResponseStream()
+    $out = [IO.File]::Create($file)
+    try {
+        $buffer = New-Object byte[] 1MB
+        $done = 0; $shown = -10
+        while (($n = $in.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $out.Write($buffer, 0, $n); $done += $n
+            $pct = if ($total -gt 0) { [int](100 * $done / $total) } else { 0 }
+            if ($pct -ge $shown + 10) {
+                $shown = $pct - ($pct % 10)
+                Info ("{0}: {1}% of {2:N0} MB" -f $label, $pct, ($total / 1MB))
+            }
+        }
+    } finally { $out.Close(); $in.Close(); $response.Close() }
+}
+
+# winget comes with "App Installer". If it's missing or broken, first try registering the copy
+# Windows already has (common on a brand-new account), then install App Installer and its
+# dependencies straight from winget's GitHub releases.
 Step 'Checking winget'
 $winget = Find-Winget
 if (-not $winget) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $ProgressPreference = 'SilentlyContinue'  # Invoke-WebRequest is very slow with the progress bar in 5.1
 
     Info 'Registering App Installer...'
     try { Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe } catch {}
     $winget = Find-Winget
 
     if (-not $winget) {
-        Info 'Installing winget with Microsoft.WinGet.Client...'
+        Info 'Downloading winget from GitHub (about 300 MB)...'
+        $tmp = Join-Path $env:TEMP 'betterhotkeys-winget'
         try {
-            if (-not (Get-PackageProvider NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
-                Install-PackageProvider NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
-            }
-            Install-Module Microsoft.WinGet.Client -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
-            Import-Module Microsoft.WinGet.Client
-            Repair-WinGetPackageManager -Latest -Force | Out-Null
-        } catch { Info "that didn't work: $($_.Exception.Message)" }
-        $winget = Find-Winget
-    }
-
-    if (-not $winget) {
-        Info 'Downloading App Installer from GitHub (about 300 MB)...'
-        try {
-            $tmp = Join-Path $env:TEMP 'betterhotkeys-winget'
             New-Item -ItemType Directory -Force $tmp | Out-Null
             $base = 'https://github.com/microsoft/winget-cli/releases/latest/download'
-            Invoke-WebRequest "$base/DesktopAppInstaller_Dependencies.zip" -OutFile "$tmp\deps.zip" -UseBasicParsing
-            Invoke-WebRequest "$base/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle" -OutFile "$tmp\winget.msixbundle" -UseBasicParsing
+            Get-File "$base/DesktopAppInstaller_Dependencies.zip" "$tmp\deps.zip" 'dependencies'
+            Get-File "$base/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle" "$tmp\winget.msixbundle" 'winget'
+            Info 'Installing winget (this can take a minute)...'
             Expand-Archive "$tmp\deps.zip" "$tmp\deps" -Force
             # The zip has a folder per architecture (x64, arm64, ...)
             $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
             $deps = @(Get-ChildItem "$tmp\deps" -Recurse -Include *.appx, *.msix |
                 Where-Object { $_.FullName -match "\\$arch\\" } | Select-Object -ExpandProperty FullName)
+            $ProgressPreference = 'SilentlyContinue'
             if ($deps) { Add-AppxPackage -Path "$tmp\winget.msixbundle" -DependencyPath $deps -ForceApplicationShutdown }
             else { Add-AppxPackage -Path "$tmp\winget.msixbundle" -ForceApplicationShutdown }
-            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            $ProgressPreference = 'Continue'
         } catch { Info "that didn't work: $($_.Exception.Message)" }
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
         $winget = Find-Winget
     }
 }
@@ -227,7 +238,7 @@ try {
     New-Item $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$appDir\uninstall.ps1`""
     $values = @{
-        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.0'; Publisher = 'Wyatt852456'
+        DisplayName = 'BetterHotkeys'; DisplayVersion = '1.2.1'; Publisher = 'Wyatt852456'
         UninstallString = $uninstall; DisplayIcon = "$(Find-Ahk),0"
         InstallLocation = $dest; URLInfoAbout = 'https://github.com/Wyatt852456/BetterHotkeys'
     }
